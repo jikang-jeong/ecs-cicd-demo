@@ -6,10 +6,9 @@ app = Flask(__name__)
 
 @app.route("/")
 def hello():
-    # 배포 버전 구분: 이미지 태그 또는 호스트명
-    version = os.environ.get("APP_VERSION", "unknown")
+    
     hostname = socket.gethostname()[:12]  # ECS Task ID 앞부분
-    return render_template("index.html", message=f"Hello CI/CD test - [current env] Version: {version} | Task: {hostname}")
+    return render_template("index.html", message=f" CI/CD test - [current env]  Task: {hostname}")
 
 @app.route("/health")
 def health():
