@@ -438,14 +438,16 @@ CloudWatch → 알람 → 알람 생성
 
 | 항목 | 값 |
 |------|-----|
-| 지표 | `ApplicationELB → Per AppELB Metrics → HTTPCode_ELB_5XX_Count` |
+| 지표 | `ApplicationELB → Per AppELB Metrics → HTTPCode_Target_5XX_Count` |
 | 로드 밸런서 | `ci-cd-demo-alb` |
 | 통계 | 합계 (Sum) |
 | 기간 | 1분 |
 | 조건 | 보다 큼 > **10** |
 | 알람 이름 | `ci-cd-demo-5xx-alarm` |
 
-> 💡 `HTTPCode_ELB_5XX_Count`는 ALB 전체 지표라서 Blue/Green 어디서든 에러 감지 가능
+> ⚠️ **주의**: `HTTPCode_ELB_5XX_Count`가 아닌 `HTTPCode_Target_5XX_Count` 사용!
+> - `ELB_5XX`: ALB 자체 오류 (502, 503)
+> - `Target_5XX`: **앱에서 반환하는 500** ← 이것 사용
 
 **CLI로 생성**:
 ```bash
@@ -456,7 +458,7 @@ ALB_SUFFIX=$(aws elbv2 describe-load-balancers \
 
 aws cloudwatch put-metric-alarm \
   --alarm-name ci-cd-demo-5xx-alarm \
-  --metric-name HTTPCode_ELB_5XX_Count \
+  --metric-name HTTPCode_Target_5XX_Count \
   --namespace AWS/ApplicationELB \
   --statistic Sum \
   --period 60 \

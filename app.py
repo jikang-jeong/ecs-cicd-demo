@@ -1,12 +1,15 @@
 from flask import Flask, render_template
-
-import signal
 import os
+import socket
+
 app = Flask(__name__)
 
 @app.route("/")
 def hello():
-    return render_template("index.html", message="Hello World!222")
+    # 배포 버전 구분: 이미지 태그 또는 호스트명
+    version = os.environ.get("APP_VERSION", "unknown")
+    hostname = socket.gethostname()[:12]  # ECS Task ID 앞부분
+    return render_template("index.html", message=f"Version: {version} | Task: {hostname}")
 
 @app.route("/health")
 def health():
