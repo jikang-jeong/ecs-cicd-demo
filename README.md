@@ -22,21 +22,21 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         AWS Cloud                                │
+│                         AWS Cloud                               │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
 │  │   GitLab/   │───▶│     ECR     │───▶│    ECS Cluster      │  │
-│  │   GitHub    │    │  (이미지저장) │    │  ┌───────────────┐  │  │
+│  │   GitHub    │    │  (이미지저장) │     │  ┌───────────────┐  │  │
 │  └─────────────┘    └─────────────┘    │  │  ECS Service  │  │  │
-│                                         │  │  (Blue/Green) │  │  │
+│                                        │  │  (Blue/Green) │  │  │
 │  ┌─────────────┐    ┌─────────────┐    │  └───────┬───────┘  │  │
 │  │    User     │───▶│     ALB     │───▶│          │          │  │
 │  └─────────────┘    │  (HTTP:80)  │    │  ┌───────▼───────┐  │  │
 │                     └──────┬──────┘    │  │ Fargate Tasks │  │  │
 │                            │           │  └───────────────┘  │  │
 │                     ┌──────▼──────┐    └─────────────────────┘  │
-│                     │ Target Groups│                             │
-│                     │ Blue / Green │                             │
-│                     └─────────────┘                              │
+│                     │ Target Groups│                            │
+│                     │ Blue / Green │                            │
+│                     └─────────────┘                             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -117,7 +117,7 @@ def health():
 | 로드밸런서 | ALB, Target Groups (Blue/Green) | 트래픽 분산 |
 | 컨테이너 | ECR Repository, ECS Cluster | 이미지 저장 및 실행 |
 | IAM | Task Execution Role, Task Role | 권한 관리 |
-| IAM | **ecsInfrastructureRoleForLoadBalancers** | Blue/Green ALB 관리 |
+| IAM | ecsInfrastructureRoleForLoadBalancers | Blue/Green ALB 관리 |
 | 모니터링 | CloudWatch Log Group | 로그 수집 |
 
 ### 핵심 IAM Role 설명
@@ -270,8 +270,8 @@ curl http://$(aws cloudformation describe-stacks \
    | **로드 밸런서 역할** | `ecsInfrastructureRoleForLoadBalancers` |
 
 5. **업데이트 클릭**
-
-### Blue/Green 배포 라이프사이클
+ 
+### Blue/Green 배포 라이프사이클 참고.
 
 ```
 RECONCILE_SERVICE     서비스 상태 확인
@@ -286,7 +286,7 @@ TEST_TRAFFIC_SHIFT   테스트 트래픽 전환 (선택)
        ↓
 PRODUCTION_TRAFFIC_SHIFT  프로덕션 트래픽 전환
        ↓
-BAKE_TIME            안정화 대기 (5분)
+BAKE_TIME            안정화 대기 (5분)  * 배포 전략에 따라 BAKE_TIME을 조정하십시오.
        ↓
 CLEAN_UP             Blue 환경 정리
 ```
@@ -404,7 +404,7 @@ deploy:
 
 ## 7. 자동 롤백 테스트
 
-> ⚠️ **중요**: 롤백은 **배포 중**에만 발생합니다. 배포 완료 후 크래시는 롤백이 아닌 **태스크 재시작**으로 처리됩니다.
+> ⚠️ **중요**: 롤백은 **배포 중**에만 발생합니다. 배포 완료 후 크래시는 롤백이 아닌 **태스크 재시작**으로 처리됩니다. 블루<>그린간 전환 조건은 BAKE TIME 동안 유효합니다.
 
 ### 롤백이 발생하는 조건
 
@@ -413,7 +413,7 @@ deploy:
 3. **CloudWatch 알람** - 사용자 정의 메트릭 임계값 초과 (설정 시)
 4. **수동 중단** - 콘솔에서 배포 중단
 
-### 테스트 방법 1: 헬스체크 실패 (권장)
+### 테스트 방법 1: 헬스체크 실패 
 
 ```python
 # app.py 수정
@@ -509,22 +509,6 @@ done
 ECS → 클러스터 → 서비스 → 배포 탭 → 배포 기록
 ```
 
-**CLI**:
-```bash
-aws ecs describe-services \
-  --cluster ci-cd-demo-cluster \
-  --services ci-cd-demo-service \
-  --query 'services[0].events[:5]' \
-  --region ap-northeast-2
-```
-
-### 테스트 후 복구
-
-```bash
-git checkout app.py
-git push origin main
-```
-
 ---
 
 ## 8. Auto Scaling 설정
@@ -584,11 +568,11 @@ ScalingPolicy:
 
 ### Q: CodeDeploy는 더 이상 필요 없나요?
 
-**A**: ECS Blue/Green 배포의 경우 **불필요**합니다. 2025년 AWS가 ECS 네이티브 Blue/Green을 출시하면서 CodeDeploy 없이 ECS 자체에서 Blue/Green을 지원합니다.
+**A**: ECS Blue/Green 배포의 경우 **불필요**합니다. 2025년 AWS가 ECS 네이티브 Blue/Green을 출시하면서 CodeDeploy 없이 ECS 자체에서 Blue/Green을 지원하며 이를 따르도록 본 레포지토리를 구성하였습니다. 
 
 ### Q: Blue/Green 전환은 언제 일어나나요?
 
-**A**: ECS Service가 업데이트될 때 자동으로 실행됩니다:
+**A**: ECS Service가 업데이트될 때 자동으로 실행됩니다: (본 레포지토리에서는 github에 master 브랜치가 변경될때 github action에 의해 실행되도록 구성 하였습니다.
 - 새 Task Definition 등록 후 서비스 업데이트
 - `--force-new-deployment` 옵션 사용
 - 콘솔에서 "새 배포 강제 실행"
@@ -610,10 +594,12 @@ ScalingPolicy:
 
 ### Q: 비용은 얼마나 드나요?
 
-**A**: 
+**A**: ⚠️ **주의** 테스트가 완료되었다면 실행계정의 cloudformation으로 돌아가 ci-cd-demo 관련 스택을 모두 삭제해 리소스를 제거하시기 바랍니다.
+
+아래의 요소에서 비용이 발생할 수 있습니다. 
 - ECS Blue/Green 자체는 **무료**
-- 배포 중 일시적으로 태스크가 2배 (Blue + Green)
-- Fargate 비용: 태스크 수 × 실행 시간 × (vCPU + 메모리)
+- 배포 중 일시적 (BAKE_TIME) 으로 태스크가 2배 발생, (Blue + Green)
+- Fargate 비용: 태스크 수 × 실행 시간 × (vCPU + 메모리) 
 
 ---
 
@@ -622,4 +608,4 @@ ScalingPolicy:
 - [AWS 공식: ECS Blue/Green 배포](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-type-blue-green.html)
 - [AWS 공식: ALB 리소스 설정](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/alb-resources-for-blue-green.html)
 - [AWS 공식: ECS Infrastructure Role](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AmazonECSInfrastructureRolePolicyForLoadBalancers.html)
-- [AWS 블로그: CodeDeploy에서 ECS Blue/Green으로 마이그레이션](https://aws.amazon.com/blogs/containers/migrating-from-aws-codedeploy-to-amazon-ecs-for-blue-green-deployments/)
+- [AWS 블로그: Amazon ECS 내장 새로운 블루/그린 배포 기반 안전한 소프트웨어 출시 가속하기](https://aws.amazon.com/ko/blogs/korea/accelerate-safe-software-releases-with-new-built-in-blue-green-deployments-in-amazon-ecs/)
