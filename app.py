@@ -7,7 +7,7 @@ app = Flask(__name__)
 @app.route("/")
 def hello():
     hostname = socket.gethostname()[:12]  
-    return render_template("index.html", message=f" CI/CD test - [current env]  Task: {hostname}")
+    return render_template("index.html", message=f" 1 CI/CD test - [current env]  Task: {hostname}")
 
 @app.route("/health")
 def health():
