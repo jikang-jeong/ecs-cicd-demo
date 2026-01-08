@@ -7,12 +7,13 @@
 1. [아키텍처 개요](#1-아키텍처-개요)
 2. [사전 준비](#2-사전-준비)
 3. [Phase 1: 인프라 구성](#3-phase-1-인프라-구성)
-4. [Phase 2: 첫 번째 배포](#4-phase-2-첫-번째-배포)
-5. [Phase 3: Blue/Green 배포 설정](#5-phase-3-bluegreen-배포-설정)
-6. [CI/CD 파이프라인](#6-cicd-파이프라인)
-7. [자동 롤백 테스트](#7-자동-롤백-테스트)
-8. [Auto Scaling 설정](#8-auto-scaling-설정)
-9. [FAQ](#9-faq)
+4. [IAM 역할 및 정책 상세](#4-iam-역할-및-정책-상세)
+5. [Phase 2: 첫 번째 배포](#5-phase-2-첫-번째-배포)
+6. [Phase 3: Blue/Green 배포 설정](#6-phase-3-bluegreen-배포-설정)
+7. [CI/CD 파이프라인](#7-cicd-파이프라인)
+8. [자동 롤백 테스트](#8-자동-롤백-테스트)
+9. [Auto Scaling 설정](#9-auto-scaling-설정)
+10. [FAQ](#10-faq)
 
 ---
 
@@ -184,7 +185,339 @@ aws cloudformation describe-stacks \
 
 ---
 
-## 4. Phase 2: 첫 번째 배포
+## 4. IAM 역할 및 정책 상세
+
+이 프로젝트에서 생성되는 모든 IAM 역할과 정책에 대한 상세 설명입니다.
+
+### 4.1 IAM 역할 개요
+
+| 역할 이름 | 용도 | Trust Entity |
+|-----------|------|--------------|
+| `ci-cd-demo-ecs-task-execution-role` | ECS 태스크 시작 시 필요한 권한 (ECR 풀, CloudWatch 로그) | `ecs-tasks.amazonaws.com` |
+| `ci-cd-demo-ecs-task-role` | 컨테이너 내부에서 AWS 서비스 호출 시 사용 | `ecs-tasks.amazonaws.com` |
+| `ecsInfrastructureRoleForLoadBalancers` | Blue/Green 배포 시 ALB 리스너/규칙 수정 | `ecs.amazonaws.com` |
+
+### 4.2 ECS Task Execution Role
+
+**역할 이름**: `ci-cd-demo-ecs-task-execution-role`
+
+ECS 에이전트가 태스크를 시작할 때 사용하는 역할입니다. ECR에서 이미지를 풀링하고 CloudWatch Logs에 로그를 기록합니다.
+
+#### Trust Policy (신뢰 관계)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+#### 연결된 정책
+
+**1. AWS 관리형 정책: `AmazonECSTaskExecutionRolePolicy`**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+**2. 인라인 정책: `ECRAccess`**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+> 💡 ECR 접근 권한이 관리형 정책과 중복되지만, 명시적으로 추가하여 권한을 명확히 합니다.
+
+### 4.3 ECS Task Role
+
+**역할 이름**: `ci-cd-demo-ecs-task-role`
+
+컨테이너 내부의 애플리케이션이 AWS 서비스를 호출할 때 사용하는 역할입니다.
+
+#### Trust Policy (신뢰 관계)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs-tasks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+#### 연결된 정책
+
+현재 추가 정책 없음. 애플리케이션이 S3, DynamoDB 등 AWS 서비스에 접근해야 할 경우 이 역할에 필요한 정책을 추가합니다.
+
+**예시 - S3 접근 권한 추가 시**:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::my-bucket/*"
+    }
+  ]
+}
+```
+
+### 4.4 ECS Infrastructure Role for Load Balancers
+
+**역할 이름**: `ecsInfrastructureRoleForLoadBalancers`
+
+ECS가 Blue/Green 배포 시 ALB 리스너와 규칙을 수정하기 위해 사용하는 역할입니다.
+
+#### Trust Policy (신뢰 관계)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowAccessToECSForInfrastructureManagement",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ecs.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+#### 연결된 정책
+
+**AWS 관리형 정책: `AmazonECSInfrastructureRolePolicyForLoadBalancers`**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ELBReadOperations",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeListeners",
+        "elasticloadbalancing:DescribeRules"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ALBModifyListeners",
+      "Effect": "Allow",
+      "Action": "elasticloadbalancing:ModifyListener",
+      "Resource": "arn:aws:elasticloadbalancing:*:*:listener/app/*/*/*"
+    },
+    {
+      "Sid": "NLBModifyListeners",
+      "Effect": "Allow",
+      "Action": "elasticloadbalancing:ModifyListener",
+      "Resource": "arn:aws:elasticloadbalancing:*:*:listener/net/*/*/*"
+    },
+    {
+      "Sid": "ALBModifyRules",
+      "Effect": "Allow",
+      "Action": "elasticloadbalancing:ModifyRule",
+      "Resource": "arn:aws:elasticloadbalancing:*:*:listener-rule/app/*/*/*/*"
+    }
+  ]
+}
+```
+
+> 💡 이 역할은 콘솔에서 Blue/Green 배포 설정 시 "로드 밸런서 역할"로 선택합니다.
+
+### 4.5 GitHub Actions IAM User
+
+**사용자 이름**: `ci-cd-demo-github-actions-user`
+
+GitHub Actions CI/CD 파이프라인에서 사용하는 IAM 사용자입니다.
+
+#### 인라인 정책: `GitHubActionsPolicy`
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ECRAccess",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ECSAccess",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "ecs:RegisterTaskDefinition",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::<ACCOUNT_ID>:role/ci-cd-demo-ecs-task-execution-role",
+        "arn:aws:iam::<ACCOUNT_ID>:role/ci-cd-demo-ecs-task-role"
+      ]
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:ap-northeast-2:<ACCOUNT_ID>:log-group:/ecs/ci-cd-demo:*"
+    }
+  ]
+}
+```
+
+#### 권한 설명
+
+| 권한 그룹 | 용도 |
+|-----------|------|
+| **ECR** | Docker 이미지 빌드 및 푸시 (`PutImage`, `UploadLayerPart` 등) |
+| **ECS** | Task Definition 등록 및 서비스 업데이트 |
+| **PassRole** | ECS 서비스가 Task Execution Role과 Task Role을 사용할 수 있도록 허용 |
+| **CloudWatch Logs** | 빌드/배포 로그 기록 |
+
+> ⚠️ **보안 권장사항**: 프로덕션 환경에서는 IAM User 대신 **OIDC**를 사용하여 GitHub Actions와 AWS를 연동하는 것을 권장합니다.
+
+### 4.6 권한 흐름도
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         배포 권한 흐름                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  GitHub Actions                                                         │
+│       │                                                                 │
+│       │ (GitHubActionsPolicy)                                          │
+│       ▼                                                                 │
+│  ┌─────────┐    Push Image    ┌─────────┐                              │
+│  │   ECR   │◀────────────────│ Docker  │                              │
+│  └────┬────┘                  │  Build  │                              │
+│       │                       └─────────┘                              │
+│       │ Pull Image                                                      │
+│       │ (Task Execution Role)                                          │
+│       ▼                                                                 │
+│  ┌─────────────────────────────────────────────────────┐               │
+│  │                    ECS Service                       │               │
+│  │  ┌─────────────────┐    ┌─────────────────────────┐ │               │
+│  │  │ Task Execution  │    │      Task Role          │ │               │
+│  │  │     Role        │    │  (App AWS API calls)   │ │               │
+│  │  │ - ECR Pull      │    │  - S3, DynamoDB 등     │ │               │
+│  │  │ - CW Logs       │    │    (필요시 추가)        │ │               │
+│  │  └─────────────────┘    └─────────────────────────┘ │               │
+│  └─────────────────────────────────────────────────────┘               │
+│                                                                         │
+│  Blue/Green 배포 시:                                                    │
+│  ┌────────────────────────────────────────┐                            │
+│  │  ecsInfrastructureRoleForLoadBalancers │                            │
+│  │  - ALB Listener 수정                    │                            │
+│  │  - Target Group 트래픽 전환             │                            │
+│  └────────────────────────────────────────┘                            │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.7 최소 권한 원칙 적용 가이드
+
+프로덕션 환경에서는 `Resource: "*"` 대신 특정 리소스 ARN을 지정하는 것을 권장합니다.
+
+**ECR 권한 제한 예시**:
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "ecr:BatchCheckLayerAvailability",
+    "ecr:GetDownloadUrlForLayer",
+    "ecr:BatchGetImage"
+  ],
+  "Resource": "arn:aws:ecr:ap-northeast-2:<ACCOUNT_ID>:repository/ci-cd-demo-app"
+}
+```
+
+**ECS 권한 제한 예시**:
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "ecs:UpdateService",
+    "ecs:DescribeServices"
+  ],
+  "Resource": "arn:aws:ecs:ap-northeast-2:<ACCOUNT_ID>:service/ci-cd-demo-cluster/ci-cd-demo-service"
+}
+```
+
+---
+
+## 5. Phase 2: 첫 번째 배포
 
 ### Step 1: Docker 이미지 빌드 및 푸시
 
@@ -234,7 +567,7 @@ curl http://$(aws cloudformation describe-stacks \
 
 ---
 
-## 5. Phase 3: Blue/Green 배포 설정
+## 6. Phase 3: Blue/Green 배포 설정
 
 > 📌 ECS 네이티브 Blue/Green은 **콘솔에서 설정**합니다. (CloudFormation 불필요)
 
@@ -293,7 +626,7 @@ CLEAN_UP             Blue 환경 정리
 
 ---
 
-## 6. CI/CD 파이프라인
+## 7. CI/CD 파이프라인
 
 ### GitHub Actions 예시
 
@@ -402,7 +735,7 @@ deploy:
 
 ---
 
-## 7. 자동 롤백 테스트
+## 8. 자동 롤백 테스트
 
 > ⚠️ **중요**: 롤백은 **배포 중**에만 발생합니다. 배포 완료 후 크래시는 롤백이 아닌 **태스크 재시작**으로 처리됩니다. 블루<>그린간 전환 조건은 BAKE TIME 동안 유효합니다.
 
@@ -511,7 +844,7 @@ ECS → 클러스터 → 서비스 → 배포 탭 → 배포 기록
 
 ---
 
-## 8. Auto Scaling 설정
+## 9. Auto Scaling 설정
 
 ### 스케일링 기준
 
@@ -564,7 +897,7 @@ ScalingPolicy:
 
 ---
 
-## 9. FAQ
+## 10. FAQ
 
 ### Q: CodeDeploy는 더 이상 필요 없나요?
 
