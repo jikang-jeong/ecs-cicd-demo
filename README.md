@@ -580,7 +580,7 @@ curl http://$(aws cloudformation describe-stacks \
 
 2. **서비스 선택 및 편집**
    ```
-   ci-cd-demo-service 선택 → 배포 탭 → 편집
+   ci-cd-demo-service 선택 → (서비스 변경 화면 접근: 서비스 업데이트 버튼 클릭) ->   배포 옵션 영역 찾기  → 편집
    ```
 
 3. **배포 전략 설정**
